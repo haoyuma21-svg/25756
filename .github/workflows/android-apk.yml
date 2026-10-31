@@ -1,0 +1,79 @@
+
+name: Typhoon Lab Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Typhoon Lab V7.0.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.2.12479018"
+
+      - name: Extract V7 project
+        run: |
+          mkdir -p source
+          unzip -q TyphoonLabNative_V7.0.0_Android_Project.zip -d source
+          test -f source/TyphoonLabNative_V7.0.0/settings.gradle.kts
+
+      - name: Build Debug APK
+        working-directory: source/TyphoonLabNative_V7.0.0
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace clean assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify APK
+        working-directory: source/TyphoonLabNative_V7.0.0
+        run: |
+          set -e
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt"
+          "$AAPT" dump badging "$APK" | grep "com.typhoonlab.mobile"
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$APK"
+
+      - name: Prepare APK download
+        working-directory: source/TyphoonLabNative_V7.0.0
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            dist/TyphoonLab-V7.0.0-debug.apk
+          cd dist
+          sha256sum TyphoonLab-V7.0.0-debug.apk \
+            > TyphoonLab-V7.0.0-debug.apk.sha256
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: TyphoonLab-V7.0.0-Android-APK
+          path: |
+            source/TyphoonLabNative_V7.0.0/dist/TyphoonLab-V7.0.0-debug.apk
+            source/TyphoonLabNative_V7.0.0/dist/TyphoonLab-V7.0.0-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
